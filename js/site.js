@@ -26,6 +26,12 @@
   const setGroup = open => { gbtn.setAttribute('aria-expanded', String(open)); $('#group-list').inert = !open; };
   gbtn.addEventListener('click', () => setGroup(gbtn.getAttribute('aria-expanded') !== 'true'));
   $('#group-list').inert = true;
+  /* desktop header: Portfolio opens a small list */
+  const tb = $('#tn-btn'), tl = $('#tn-list');
+  const setTn = open => { tb.setAttribute('aria-expanded', String(open)); tl.hidden = !open; };
+  tb.addEventListener('click', () => setTn(tl.hidden));
+  document.addEventListener('click', e => { if (!e.target.closest('.tn-group')) setTn(false); });
+  addEventListener('keydown', e => { if (e.key === 'Escape' && !tl.hidden) { setTn(false); tb.focus(); } });
   addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(true); });
 
   /* ---------- notes ---------- */
@@ -156,18 +162,53 @@
     if (b && b.getAttribute('aria-pressed') !== 'true') b.click();
   }
 
+  /* ---------- galleries ---------- */
+  const lb = $('#lightbox'), lbImg = lb && $('img', lb);
+  let lbSet = [], lbAt = 0, lbFrom = null;
+  function lbShow(i) {
+    lbAt = (i + lbSet.length) % lbSet.length;
+    const src = $('img', lbSet[lbAt]);
+    lbImg.removeAttribute('srcset'); lbImg.src = src.currentSrc || src.src;
+    /* the live build adds WebP sizes; the viewer asks for the big one */
+    if (src.srcset) { lbImg.sizes = '100vw'; lbImg.srcset = src.srcset; }
+    lbImg.alt = src.alt;
+    $('.lb-count', lb).textContent = `${lbAt + 1} / ${lbSet.length}`;
+  }
+  if (lb) {
+    $$('.gal-item').forEach(b => {
+      b.setAttribute('aria-label', `View larger: ${$('img', b).alt}`);
+      b.addEventListener('click', () => { lbSet = $$('.gal-item', b.closest('.gal')); lbFrom = b; lbShow(lbSet.indexOf(b)); lb.showModal(); });
+    });
+    $('.lb-close', lb).addEventListener('click', () => lb.close());
+    $('.lb-prev', lb).addEventListener('click', () => lbShow(lbAt - 1));
+    $('.lb-next', lb).addEventListener('click', () => lbShow(lbAt + 1));
+    lb.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') lbShow(lbAt - 1); if (e.key === 'ArrowRight') lbShow(lbAt + 1); });
+    /* a tap on the dark area around the photo closes it */
+    lb.addEventListener('click', e => { if (e.target === lb) lb.close(); });
+    let x0 = null;
+    lb.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, { passive: true });
+    lb.addEventListener('touchend', e => { if (x0 === null) return; const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 50) lbShow(lbAt + (dx < 0 ? 1 : -1)); x0 = null; });
+    lb.addEventListener('close', () => { if (lbFrom) lbFrom.focus(); });
+  }
+
   /* ---------- router ---------- */
   let firstRoute = true;
+  /* the live build also serves each section at its own address (/seniors/ etc.) for search engines */
+  const pathPage = location.pathname.split('/').filter(Boolean).pop() || '';
   function route() {
-    const [h, sub] = (location.hash || '#home').slice(1).split('/');
+    const [h, sub] = (location.hash || '#' + (pathPage && $(`.page[data-page="${pathPage}"]`) ? pathPage : 'home')).slice(1).split('/');
     const page = $$('.page').find(p => p.dataset.page === h) || $('.page[data-page="home"]');
     $$('.page').forEach(p => p.classList.toggle('on', p === page));
+    /* the photos at the top of the page you land on load right away instead of waiting their turn */
+    $$('.aud-head img, .hero img, .ptitle ~ .vplayer img, .about-top img', page).forEach(i => { i.loading = 'eager'; });
     const key = page.dataset.parent || page.dataset.page;
     $$('[data-nav]').forEach(a => (a.dataset.nav === key ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
     const inGroup = gbtn.dataset.navGroup.split(' ').includes(key);
-    if (inGroup) gbtn.setAttribute('aria-current', 'true'); else gbtn.removeAttribute('aria-current');
+    [gbtn, tb].forEach(b => (inGroup ? b.setAttribute('aria-current', 'true') : b.removeAttribute('aria-current')));
+    setTn(false);
     setGroup(inGroup);
     closeMenu(false);
+    if (lb && lb.open) lb.close();
     players.forEach(stopPlayer);
     pickFilm(page, sub);
     if (page.dataset.page === 'contact') pickWho(sub || 'senior');
